@@ -1,92 +1,82 @@
-var program = require('commander');
-var os = require('os');
-var path = require('path');
-var fs = require("fs")
+var program = require('commander')
+var os = require('os')
+var path = require('path')
+var fs = require('fs')
+var del = require('del')
 
 program
   .version('1.0.0', '-v, --version')
   .option('-c, --chdir <path>', 'change the working directory', os.homedir())
-  .option('-o, --output <path>', 'change the output directory', path.join(__dirname,"output"))
-  .option('-f, --fileType [type]', 'type of sorting files',".png")
-  .option('-r, --remove','remove inital folder after sorting')
-  .parse(process.argv);
+  .option('-o, --output <path>', 'change the output directory', path.join(__dirname, 'output'))
+  .option('-f, --fileType [type]', 'type of sorting files', '.png')
+  .option('-r, --remove', 'remove inital folder after sorting')
+  .parse(process.argv)
 
-
-//Создаём папку вывода:
-fs.existsSync(program.output) || fs.mkdirSync(program.output)
-
-
-const readDir = (base, level) => {
-  const files = fs.readdirSync(base)
-
-  files.forEach((item) => {
-    let localBase = path.join(base, item)
-    let state = fs.statSync(localBase)
-
-    if (!state.isDirectory()){
-      saveItem(item, localBase)
-    }
-
-    else{
-      readDir(localBase, level + 1)
-
-    }
-
+async function makeFolder (path) {
+  fs.mkdir(path, (folder) => {
+    return folder
   })
-
-  removeFileOrDirectory(base)
-
 }
 
-function removeFileOrDirectory(fileOrDir){
-
-  if (!program.remove){return}
-
-  if (fs.statSync(fileOrDir).isDirectory()){
-    fs.rmdirSync(fileOrDir)
-  }
-
-  else{
-    fs.unlinkSync(fileOrDir)
-  }
+function getFolderOutPath (item) {
+  let firstCharName = item.charAt(0).toUpperCase()
+  let folderPath = path.join(program.output, firstCharName)
+  makeFolder(folderPath)
+  return path.join(folderPath, item)
 }
 
-function saveItem(item, localBase){
-
-  //Сравниваем по типу файла.
-
+function saveItem (item, localBase) {
+  //  Сравниваем по типу файла
   if (path.extname(item).toUpperCase() !== program.fileType.toUpperCase()) {
-    removeFileOrDirectory(localBase)
     return
   }
 
   let outputFile = getFolderOutPath(item)
-
-  if (fs.existsSync(outputFile)){
-    console.log("Файл уже скопирован: "+outputFile);
-  }
-
-  else {
-    console.log(localBase);
-    fs.createReadStream(localBase).pipe(fs.createWriteStream(outputFile));
-
-  }
-
-  removeFileOrDirectory(localBase)
-
-
+  fs.access(outputFile, () => {
+    fs.createReadStream(localBase).pipe(fs.createWriteStream(outputFile))
+  })
 }
 
+async function readDir (base, level) {
+  fs.readdir(base, function (err, files) {
+    if (err) {
+      console.log(err.stack)
+    }
 
-function getFolderOutPath(item) {
-  let firstCharName = item.charAt(0).toUpperCase()
-  let folderPath = path.join(program.output,  firstCharName)
+    files.forEach((item) => {
+      let localBase = path.join(base, item)
 
-  //Create if no folder:
-  fs.existsSync(folderPath) || fs.mkdirSync(folderPath)
-  return path.join(folderPath, item)
+      fs.stat(localBase, (err, fileOrDir) => {
+        if (err) {
+          console.log(err)
+        }
+
+        if (fileOrDir.isDirectory()) {
+          console.log(localBase + ' is directory')
+          readDir(localBase, level + 1)
+        } else {
+          console.log(localBase + ' is file')
+          saveItem(item, localBase)
+        }
+      })
+    })
+  })
 }
 
+async function deleteIfNeedit (folder) {
+  if (program.remove) {
+    del(folder, {force: true})
+  }
+}
 
-readDir(program.chdir, 0)
-removeFileOrDirectory(program.chdir)
+async function main () {
+  try {
+    await makeFolder(program.output)
+    await readDir(program.chdir, 0)
+    await deleteIfNeedit(program.chdir)
+  } catch (error) {
+    console.log(error)
+  }
+}
+
+main()
